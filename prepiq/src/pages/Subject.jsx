@@ -477,6 +477,122 @@ function PYQTab() {
     </div>
   )
 }
+function ProgressTab({ topics }) {
+  const done = topics.filter(t => t.done).length
+  const total = topics.length
+  const percent = Math.round((done / total) * 100)
+
+  const dummyTestScores = [
+    { label: 'Test 1', score: 45, total: 70 },
+    { label: 'Test 2', score: 52, total: 70 },
+    { label: 'Test 3', score: 61, total: 70 },
+    { label: 'Test 4', score: 58, total: 70 },
+    { label: 'Test 5', score: 65, total: 70 },
+  ]
+
+  const weakTopics = topics.filter(t => !t.done && t.weightage === 'High')
+  const strongTopics = topics.filter(t => t.done)
+
+  const maxScore = Math.max(...dummyTestScores.map(t => t.total))
+
+  return (
+    <div className="space-y-6">
+
+      {/* Overview cards */}
+      <div className="grid grid-cols-4 gap-4">
+        {[
+          { label: 'Topics done', value: `${done}/${total}`, color: '#5DCAA5' },
+          { label: 'Completion', value: `${percent}%`, color: '#7F77DD' },
+          { label: 'Tests taken', value: dummyTestScores.length, color: '#EF9F27' },
+          { label: 'Avg score', value: `${Math.round(dummyTestScores.reduce((a, b) => a + (b.score / b.total) * 100, 0) / dummyTestScores.length)}%`, color: '#D4537E' },
+        ].map((s, i) => (
+          <div key={i} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+            <div className="text-2xl font-black mb-1" style={{ color: s.color }}>{s.value}</div>
+            <div className="text-xs text-white/40">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Readiness bar */}
+      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-white">Exam readiness</h3>
+          <span className="text-sm font-black text-[#EF9F27]">{percent >= 80 ? 'Strong 💪' : percent >= 50 ? 'On track 📈' : 'Needs work 📚'}</span>
+        </div>
+        <div className="h-3 bg-white/[0.06] rounded-full overflow-hidden mb-2">
+          <div className="h-full rounded-full transition-all duration-700"
+            style={{
+              width: `${percent}%`,
+              background: percent >= 80 ? '#5DCAA5' : percent >= 50 ? '#EF9F27' : '#D4537E'
+            }} />
+        </div>
+        <p className="text-xs text-white/30">Based on topic completion and test performance</p>
+      </div>
+
+      {/* Test score chart */}
+      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
+        <h3 className="text-sm font-bold text-white mb-4">Mock test scores</h3>
+        <div className="flex items-end gap-3 h-32">
+          {dummyTestScores.map((t, i) => {
+            const height = Math.round((t.score / maxScore) * 100)
+            return (
+              <div key={i} className="flex-1 flex flex-col items-center gap-2">
+                <span className="text-xs text-white/40">{Math.round((t.score / t.total) * 100)}%</span>
+                <div className="w-full rounded-t-md transition-all duration-700 relative group"
+                  style={{ height: `${height}%`, background: '#5DCAA5', opacity: 0.7 + i * 0.06 }}>
+                </div>
+                <span className="text-xs text-white/30">{t.label}</span>
+              </div>
+            )
+          })}
+        </div>
+        <p className="text-xs text-white/20 mt-3">* Scores improving over time — keep it up!</p>
+      </div>
+
+      {/* Weak areas */}
+      {weakTopics.length > 0 && (
+        <div className="bg-[#D4537E]/[0.04] border border-[#D4537E]/20 rounded-xl p-5">
+          <h3 className="text-sm font-bold text-white mb-3">⚠️ Weak areas — high priority</h3>
+          <div className="space-y-2">
+            {weakTopics.map(t => (
+              <div key={t.id} className="flex items-center justify-between p-3 bg-white/[0.02] rounded-lg border border-white/[0.06]">
+                <span className="text-sm text-white/70">{t.name}</span>
+                <span className="text-xs text-[#D4537E] bg-[#D4537E]/10 px-2 py-0.5 rounded-full">Not started</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Strong areas */}
+      {strongTopics.length > 0 && (
+        <div className="bg-[#5DCAA5]/[0.04] border border-[#5DCAA5]/20 rounded-xl p-5">
+          <h3 className="text-sm font-bold text-white mb-3">✅ Strong areas</h3>
+          <div className="flex flex-wrap gap-2">
+            {strongTopics.map(t => (
+              <span key={t.id} className="text-xs bg-[#5DCAA5]/10 border border-[#5DCAA5]/20 text-[#5DCAA5] px-3 py-1.5 rounded-full">
+                {t.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* PYQ coverage */}
+      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
+        <h3 className="text-sm font-bold text-white mb-3">📝 PYQ coverage</h3>
+        <div className="flex items-center gap-4">
+          <div className="flex-1 h-2 bg-white/[0.06] rounded-full overflow-hidden">
+            <div className="h-full bg-[#7F77DD] rounded-full" style={{ width: '60%' }} />
+          </div>
+          <span className="text-sm font-bold text-[#7F77DD]">60%</span>
+        </div>
+        <p className="text-xs text-white/30 mt-2">3 of 5 PYQ questions practiced</p>
+      </div>
+
+    </div>
+  )
+}
 
 function Subject() {
   const { id } = useParams()
@@ -532,13 +648,7 @@ function Subject() {
         {activeTab === 'topics' && <TopicsTab topics={topics} setTopics={setTopics} />}
         {activeTab === 'material' && <StudyMaterialTab />}
         {activeTab === 'pyq' && <PYQTab />}
-        {activeTab === 'progress' && (
-          <div className="text-center py-20">
-            <div className="text-4xl mb-4">📊</div>
-            <h3 className="text-white font-bold mb-2">Progress Analytics</h3>
-            <p className="text-white/40 text-sm">Coming next!</p>
-          </div>
-        )}
+        {activeTab === 'progress' && <ProgressTab topics={topics} />}
       </div>
     </div>
   )
