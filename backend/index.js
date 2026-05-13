@@ -14,6 +14,7 @@ app.use(express.json())
 app.use('/api/auth', require('./routes/auth'))
 app.use('/api/subjects', require('./routes/subjects'))
 app.use('/api/pyq', require('./routes/pyq'))
+app.use('/api/ai', require('./routes/ai'))
 
 // Health check
 app.get('/', (req, res) => {
