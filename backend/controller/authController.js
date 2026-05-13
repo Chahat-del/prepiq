@@ -1,3 +1,5 @@
+
+require('dotenv').config()
 const { createClient } = require('@supabase/supabase-js')
 const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
@@ -46,7 +48,8 @@ const register = async (req, res) => {
     res.status(201).json({ token, user: { id: user.id, name: user.name, email: user.email } })
 
   } catch (err) {
-    res.status(500).json({ error: err.message })
+   console.log('ERROR:', err)
+res.status(500).json({ error: err.message })
   }
 }
 

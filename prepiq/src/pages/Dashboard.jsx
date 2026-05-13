@@ -1,3 +1,4 @@
+import { useAuth } from '../context/AuthContext'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -121,6 +122,7 @@ function AddSubjectModal({ onClose, onAdd }) {
 }
 
 function Dashboard() {
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [subjects, setSubjects] = useState(dummySubjects)
   const [showModal, setShowModal] = useState(false)
@@ -162,7 +164,7 @@ function Dashboard() {
         {/* Header */}
         <div className="flex items-start justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-black mb-1">Good morning, Rahul 👋</h1>
+            <h1 className="text-3xl font-black mb-1">Good morning, {user?.name?.split(' ')[0]} 👋</h1>
             <p className="text-white/40 text-sm">You have {subjects.length} subjects in progress</p>
           </div>
           <button onClick={() => setShowModal(true)}
