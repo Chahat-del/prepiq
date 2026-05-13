@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 
 const colors = ['#5DCAA5', '#7F77DD', '#EF9F27', '#D4537E', '#378ADD']
+const FAMOUS_EXAMS = ['GATE CS', 'CAT', 'JEE', 'UPSC', 'NEET']
 
 function ProgressRing({ progress, color, size = 64 }) {
   const r = (size - 8) / 2
@@ -27,7 +28,12 @@ function SubjectCard({ subject, onClick }) {
       <div className="flex items-start justify-between mb-4">
         <div>
           <h3 className="text-white font-bold text-base mb-1 group-hover:text-[#5DCAA5] transition-colors">{subject.name}</h3>
-          <span className="text-xs text-white/30 bg-white/[0.05] px-2 py-1 rounded-full">{subject.exam}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-white/30 bg-white/[0.05] px-2 py-1 rounded-full">{subject.exam}</span>
+            {subject.is_famous && (
+              <span className="text-xs text-[#EF9F27] bg-[#EF9F27]/10 px-2 py-1 rounded-full">Famous Exam</span>
+            )}
+          </div>
         </div>
         <div className="relative flex items-center justify-center">
           <ProgressRing progress={progress} color={subject.color || '#5DCAA5'} />
@@ -42,66 +48,159 @@ function SubjectCard({ subject, onClick }) {
   )
 }
 
-function AddSubjectModal({ onClose, onAdd, loading }) {
+function AddSubjectModal({ onClose, onAdd, loading, loadingMessage }) {
   const [step, setStep] = useState(1)
   const [selected, setSelected] = useState({ exam: '', subject: '' })
+  const [customExam, setCustomExam] = useState('')
+  const [customSubject, setCustomSubject] = useState('')
+  const [syllabusFile, setSyllabusFile] = useState(null)
+  const [syllabusText, setSyllabusText] = useState('')
 
-  const exams = ['GATE CS', 'CAT', 'JEE', 'UPSC', 'NEET', 'Custom']
+  const exams = ['GATE CS', 'CAT', 'JEE', 'UPSC', 'NEET', 'College / Custom']
   const subjects = {
     'GATE CS': ['DBMS', 'Operating Systems', 'Computer Networks', 'DSA', 'Algorithms', 'TOC', 'Compiler Design'],
     'CAT': ['Quantitative Aptitude', 'VARC', 'LRDI'],
     'JEE': ['Physics', 'Chemistry', 'Mathematics'],
     'UPSC': ['History', 'Geography', 'Polity', 'Economics', 'Science & Tech'],
     'NEET': ['Physics', 'Chemistry', 'Biology'],
-    'Custom': ['Custom Subject'],
+  }
+
+  const isCustom = selected.exam === 'College / Custom'
+  const isFamous = FAMOUS_EXAMS.includes(selected.exam)
+
+  // Read PDF file as text using FileReader
+  const handleSyllabusUpload = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setSyllabusFile(file)
+
+    const reader = new FileReader()
+    reader.onload = (evt) => {
+      // For plain text files read directly; PDFs need server-side parsing
+      // We'll send base64 to backend for Gemini to read
+      setSyllabusText(evt.target.result)
+    }
+    // Read as text if txt, otherwise as base64 for PDF
+    if (file.type === 'text/plain') {
+      reader.readAsText(file)
+    } else {
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleSubmit = () => {
+    const examName = isCustom ? customExam : selected.exam
+    const subjectName = isCustom ? customSubject : selected.subject
+    if (!examName || !subjectName) return
+    onAdd({
+      exam: examName,
+      subject: subjectName,
+      syllabusText: syllabusText || null,
+      syllabusFileType: syllabusFile?.type || null,
+      isFamous,
+    })
   }
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 px-4"
       onClick={onClose}>
-      <div className="bg-[#111118] border border-white/[0.1] rounded-2xl p-6 w-full max-w-md"
+      <div className="bg-[#111118] border border-white/[0.1] rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-white font-bold text-lg">Add a subject</h2>
           <button onClick={onClose} className="text-white/40 hover:text-white text-xl">×</button>
         </div>
 
+        {/* Loading state */}
         {loading && (
           <div className="text-center py-8">
-            <div className="text-4xl mb-3">🤖</div>
-            <p className="text-white font-medium mb-1">AI is generating topics...</p>
+            <div className="w-10 h-10 rounded-full border-2 border-[#5DCAA5] border-t-transparent animate-spin mx-auto mb-4" />
+            <p className="text-white font-medium mb-1">{loadingMessage || 'Setting up your subject...'}</p>
             <p className="text-white/40 text-sm">This takes a few seconds</p>
           </div>
         )}
 
+        {/* Step 1 — pick exam */}
         {!loading && step === 1 && (
           <div>
             <p className="text-white/40 text-sm mb-4">Select your exam</p>
             <div className="grid grid-cols-2 gap-2">
               {exams.map(exam => (
                 <button key={exam}
-                  onClick={() => { setSelected({ ...selected, exam }); setStep(2) }}
+                  onClick={() => { setSelected({ exam, subject: '' }); setStep(2) }}
                   className="bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white/70 hover:bg-white/[0.08] hover:text-white hover:border-[#5DCAA5]/40 transition-all text-left">
                   {exam}
+                  {FAMOUS_EXAMS.includes(exam) && (
+                    <span className="block text-xs text-[#5DCAA5] mt-0.5">Auto topics & PYQ</span>
+                  )}
                 </button>
               ))}
             </div>
           </div>
         )}
 
+        {/* Step 2 — pick/enter subject */}
         {!loading && step === 2 && (
           <div>
             <button onClick={() => setStep(1)} className="text-xs text-white/40 hover:text-white mb-4 flex items-center gap-1 transition-colors">← Back</button>
-            <p className="text-white/40 text-sm mb-4">Select subject under <span className="text-white">{selected.exam}</span></p>
-            <div className="flex flex-col gap-2">
-              {subjects[selected.exam]?.map(sub => (
-                <button key={sub}
-                  onClick={() => onAdd({ exam: selected.exam, subject: sub })}
-                  className="bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white/70 hover:bg-white/[0.08] hover:text-white hover:border-[#5DCAA5]/40 transition-all text-left">
-                  {sub}
+
+            {isCustom ? (
+              // College / Custom flow
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs text-white/40 mb-2 block">University / Exam name</label>
+                  <input
+                    value={customExam}
+                    onChange={e => setCustomExam(e.target.value)}
+                    placeholder="e.g. Mumbai University, VTU..."
+                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 outline-none focus:border-[#5DCAA5]/40"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/40 mb-2 block">Subject name</label>
+                  <input
+                    value={customSubject}
+                    onChange={e => setCustomSubject(e.target.value)}
+                    placeholder="e.g. Data Structures, Thermodynamics..."
+                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 outline-none focus:border-[#5DCAA5]/40"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/40 mb-2 block">Upload syllabus PDF <span className="text-white/20">(optional but recommended)</span></label>
+                  <label className="flex flex-col items-center justify-center border-2 border-dashed border-white/[0.1] rounded-xl p-6 cursor-pointer hover:border-[#5DCAA5]/40 transition-all">
+                    <span className="text-2xl mb-2">{syllabusFile ? '✅' : '📄'}</span>
+                    <span className="text-sm text-white/60">{syllabusFile ? syllabusFile.name : 'Click to upload syllabus'}</span>
+                    <span className="text-xs text-white/30 mt-1">PDF or TXT</span>
+                    <input type="file" accept=".pdf,.txt" onChange={handleSyllabusUpload} className="hidden" />
+                  </label>
+                  {!syllabusFile && (
+                    <p className="text-xs text-white/30 mt-2">Without syllabus, AI will generate generic topics</p>
+                  )}
+                </div>
+                <button
+                  onClick={handleSubmit}
+                  disabled={!customExam || !customSubject}
+                  className="w-full bg-[#5DCAA5] text-[#04342C] font-medium py-3 rounded-xl disabled:opacity-40 hover:brightness-110 transition-all"
+                >
+                  Add subject →
                 </button>
-              ))}
-            </div>
+              </div>
+            ) : (
+              // Famous exam flow — just pick subject
+              <div>
+                <p className="text-white/40 text-sm mb-1">Select subject under <span className="text-white">{selected.exam}</span></p>
+                <p className="text-xs text-[#5DCAA5] mb-4">✨ Topics and PYQ will be auto-generated</p>
+                <div className="flex flex-col gap-2">
+                  {subjects[selected.exam]?.map(sub => (
+                    <button key={sub}
+                      onClick={() => onAdd({ exam: selected.exam, subject: sub, isFamous: true })}
+                      className="bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white/70 hover:bg-white/[0.08] hover:text-white hover:border-[#5DCAA5]/40 transition-all text-left">
+                      {sub}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -116,6 +215,7 @@ function Dashboard() {
   const [showModal, setShowModal] = useState(false)
   const [loadingSubjects, setLoadingSubjects] = useState(true)
   const [addingSubject, setAddingSubject] = useState(false)
+  const [loadingMessage, setLoadingMessage] = useState('')
 
   useEffect(() => {
     fetchSubjects()
@@ -132,39 +232,57 @@ function Dashboard() {
     }
   }
 
-  const handleAdd = async ({ exam, subject }) => {
-  try {
-    setAddingSubject(true)
-    const color = colors[subjects.length % colors.length]
-
-    // Create subject in DB
-    const res = await api.post('/subjects', { name: subject, exam, color })
-    const newSubject = res.data.subject
-
-    // AI generates topics
+  const handleAdd = async ({ exam, subject, syllabusText, syllabusFileType, isFamous }) => {
     try {
-      await api.post('/ai/topics', {
-        subjectName: subject,
-        examName: exam,
-        subjectId: newSubject.id
-      })
-    } catch (aiErr) {
-      console.log('AI error:', aiErr)
-      // continue even if AI fails
+      setAddingSubject(true)
+      setLoadingMessage('Creating subject...')
+
+      const color = colors[subjects.length % colors.length]
+      const res = await api.post('/subjects', { name: subject, exam, color, is_famous: isFamous })
+      const newSubject = res.data.subject
+
+      // Generate topics
+      setLoadingMessage('Generating topics with AI...')
+      try {
+        await api.post('/ai/topics', {
+          subjectName: subject,
+          examName: exam,
+          subjectId: newSubject.id,
+          // Pass syllabus text for college subjects
+          syllabusText: syllabusText && !syllabusFileType?.includes('pdf')
+            ? syllabusText
+            : null,
+        })
+      } catch (aiErr) {
+        console.log('AI topic error:', aiErr)
+      }
+
+      // For famous exams, also auto-generate PYQ
+      if (isFamous) {
+        setLoadingMessage('Generating practice questions...')
+        try {
+          await api.post('/ai/pyq/famous', {
+            subjectName: subject,
+            examName: exam,
+            subjectId: newSubject.id,
+          })
+        } catch (pyqErr) {
+          console.log('PYQ generation error:', pyqErr)
+        }
+      }
+
+      await fetchSubjects()
+      setShowModal(false)
+
+    } catch (err) {
+      console.log('Error adding subject:', err)
+      alert('Error: ' + (err.response?.data?.error || err.message))
+    } finally {
+      setAddingSubject(false)
+      setLoadingMessage('')
     }
-
-    // Refresh subjects
-    await fetchSubjects()
-    setShowModal(false)
-
-  } catch (err) {
-    console.log('Error adding subject:', err)
-    alert('Error: ' + (err.response?.data?.error || err.message))
-    setAddingSubject(false)
-  } finally {
-    setAddingSubject(false)
   }
-}
+
   const totalProgress = subjects.length
     ? Math.round(subjects.reduce((a, b) => a + (b.progress || 0), 0) / subjects.length)
     : 0
@@ -244,6 +362,7 @@ function Dashboard() {
           onClose={() => !addingSubject && setShowModal(false)}
           onAdd={handleAdd}
           loading={addingSubject}
+          loadingMessage={loadingMessage}
         />
       )}
     </div>
