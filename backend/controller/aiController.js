@@ -1,3 +1,16 @@
+const fallbackTopics = {
+  'VARC': ['Reading Comprehension', 'Para Jumbles', 'Para Summary', 'Odd Sentence Out', 'Vocabulary', 'Critical Reasoning'],
+  'Quantitative Aptitude': ['Arithmetic', 'Algebra', 'Geometry', 'Number System', 'Modern Math', 'Data Interpretation'],
+  'LRDI': ['Logical Reasoning', 'Data Interpretation', 'Puzzles', 'Seating Arrangement', 'Blood Relations', 'Syllogisms'],
+  'DBMS': ['ER Model', 'Normalization', 'SQL', 'Transactions', 'Concurrency Control', 'Indexing'],
+  'Operating Systems': ['Process Management', 'Memory Management', 'File Systems', 'Deadlocks', 'Scheduling', 'Synchronization'],
+  'Computer Networks': ['OSI Model', 'TCP/IP', 'Routing', 'DNS', 'HTTP', 'Network Security'],
+  'DSA': ['Arrays', 'Linked Lists', 'Trees', 'Graphs', 'Dynamic Programming', 'Sorting & Searching'],
+  'Mathematics': ['Calculus', 'Linear Algebra', 'Probability', 'Differential Equations', 'Complex Numbers'],
+  'Physics': ['Mechanics', 'Thermodynamics', 'Electromagnetism', 'Optics', 'Modern Physics'],
+  'Chemistry': ['Physical Chemistry', 'Organic Chemistry', 'Inorganic Chemistry', 'Electrochemistry'],
+  'Biology': ['Cell Biology', 'Genetics', 'Human Physiology', 'Ecology', 'Evolution'],
+}
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') })
 const { GoogleGenerativeAI } = require('@google/generative-ai')
 const { createClient } = require('@supabase/supabase-js')
@@ -15,15 +28,16 @@ const generateTopics = async (req, res) => {
     return res.status(400).json({ error: 'Missing required fields' })
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  let topics = []
 
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
     const prompt = `You are an expert educator. Generate a comprehensive list of topics for the subject "${subjectName}" for the exam "${examName}".
 
 Return ONLY a valid JSON array with no markdown, no backticks, no explanation. Just the raw JSON array like this:
 [
   {"name": "Topic Name", "weightage": "High"},
-  {"name": "Topic Name", "weightage": "Medium"},
-  {"name": "Topic Name", "weightage": "Low"}
+  {"name": "Topic Name", "weightage": "Medium"}
 ]
 
 Weightage should be High/Medium/Low based on how frequently this topic appears in ${examName} exams.
@@ -31,32 +45,39 @@ Generate 10-15 topics. Return only the JSON array, nothing else.`
 
     const result = await model.generateContent(prompt)
     const text = result.response.text()
-
-    // Clean response
     const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim()
-    const topics = JSON.parse(cleaned)
-
-    // Save topics to database
-    const topicsToInsert = topics.map(t => ({
-      subject_id: subjectId,
-      name: t.name,
-      weightage: t.weightage,
-      done: false
+    topics = JSON.parse(cleaned)
+  } catch (aiErr) {
+    console.log('AI failed, using fallback:', aiErr.message)
+    // Use fallback topics
+    const fallback = fallbackTopics[subjectName] || ['Introduction', 'Core Concepts', 'Advanced Topics', 'Practice Problems', 'Revision']
+    topics = fallback.map((name, i) => ({
+      name,
+      weightage: i < 2 ? 'High' : i < 4 ? 'Medium' : 'Low'
     }))
-
-    const { data, error } = await supabase
-      .from('topics')
-      .insert(topicsToInsert)
-      .select()
-
-    if (error) throw error
-
-    res.json({ topics: data })
-
-  } catch (err) {
-    console.log('AI Error:', err.message)
-    res.status(500).json({ error: err.message })
   }
+
+  // Save topics to database
+  const topicsToInsert = topics.map(t => ({
+    subject_id: subjectId,
+    name: t.name,
+    weightage: t.weightage,
+    done: false
+  }))
+
+  const { data, error } = await supabase
+    .from('topics')
+    .insert(topicsToInsert)
+    .select()
+
+  if (error) throw error
+
+  res.json({ topics: data })
+
+} catch (err) {
+  console.log('Topics Error:', err.message)
+  res.status(500).json({ error: err.message })
+} 
 }
 
 const generateRoadmap = async (req, res) => {

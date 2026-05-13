@@ -137,26 +137,66 @@ function TopicsTab({ topics, setTopics }) {
 function StudyMaterialTab({ subject, topics }) {
   const [mode, setMode] = useState(null)
   const [selectedTopic, setSelectedTopic] = useState(null)
+  const [videos, setVideos] = useState([])
+  const [loadingVideos, setLoadingVideos] = useState(false)
+  const [explanation, setExplanation] = useState('')
+  const [loadingExplanation, setLoadingExplanation] = useState(false)
+
+  const fetchVideos = async (topic) => {
+    setLoadingVideos(true)
+    try {
+      const res = await api.post('/youtube/videos', {
+        topicName: topic.name,
+        subjectName: subject.name,
+        examName: subject.exam
+      })
+      setVideos(res.data.videos || [])
+    } catch (err) {
+      console.log('Video error:', err)
+    } finally {
+      setLoadingVideos(false)
+    }
+  }
+
+  const fetchExplanation = async (topic) => {
+    setLoadingExplanation(true)
+    try {
+      const res = await api.post('/ai/explain', {
+        topicName: topic.name,
+        subjectName: subject.name,
+        examName: subject.exam
+      })
+      setExplanation(res.data.explanation || '')
+    } catch (err) {
+      console.log('Explanation error:', err)
+    } finally {
+      setLoadingExplanation(false)
+    }
+  }
+
+  const handleTopicSelect = (topic) => {
+    setSelectedTopic(topic)
+    setVideos([])
+    setExplanation('')
+    if (mode === 'video') fetchVideos(topic)
+    if (mode === 'written') fetchExplanation(topic)
+  }
 
   if (!mode) return (
     <div>
       <p className="text-white/40 text-sm mb-6">How would you like to study?</p>
       <div className="grid grid-cols-2 gap-4">
-        <div
-          onClick={() => setMode('video')}
-          className="border border-white/[0.08] rounded-2xl p-6 cursor-pointer hover:border-[#5DCAA5]/40 hover:bg-white/[0.03] transition-all"
-        >
+        <div onClick={() => setMode('video')}
+          className="border border-white/[0.08] rounded-2xl p-6 cursor-pointer hover:border-[#5DCAA5]/40 hover:bg-white/[0.03] transition-all">
           <div className="text-3xl mb-3">🎥</div>
           <h3 className="text-white font-bold mb-1">Video lectures</h3>
-          <p className="text-xs text-white/40 leading-relaxed">Top YouTube videos ranked by views and student reviews</p>
+          <p className="text-xs text-white/40 leading-relaxed">Top YouTube videos ranked by relevance</p>
         </div>
-        <div
-          onClick={() => setMode('written')}
-          className="border border-white/[0.08] rounded-2xl p-6 cursor-pointer hover:border-[#7F77DD]/40 hover:bg-white/[0.03] transition-all"
-        >
+        <div onClick={() => setMode('written')}
+          className="border border-white/[0.08] rounded-2xl p-6 cursor-pointer hover:border-[#7F77DD]/40 hover:bg-white/[0.03] transition-all">
           <div className="text-3xl mb-3">📝</div>
           <h3 className="text-white font-bold mb-1">Written notes</h3>
-          <p className="text-xs text-white/40 leading-relaxed">AI-generated clean notes with examples and key points</p>
+          <p className="text-xs text-white/40 leading-relaxed">AI-generated notes with key points</p>
         </div>
       </div>
     </div>
@@ -164,24 +204,12 @@ function StudyMaterialTab({ subject, topics }) {
 
   if (!selectedTopic) return (
     <div>
-      <button
-        onClick={() => setMode(null)}
-        className="text-xs text-white/40 hover:text-white mb-4 flex items-center gap-1 transition-colors"
-      >
-        ← Back
-      </button>
-      <p className="text-sm text-white/40 mb-4">
-        Select a topic to study via{' '}
-        <span className="text-white">{mode === 'video' ? '🎥 Video' : '📝 Written notes'}</span>
-      </p>
+      <button onClick={() => setMode(null)} className="text-xs text-white/40 hover:text-white mb-4 flex items-center gap-1 transition-colors">← Back</button>
+      <p className="text-sm text-white/40 mb-4">Select a topic to study via <span className="text-white">{mode === 'video' ? '🎥 Video' : '📝 Written notes'}</span></p>
       <div className="space-y-2">
-        {/* FIX 4: was dummySubject.topics, now uses topics prop */}
         {topics.map(t => (
-          <div
-            key={t.id}
-            onClick={() => setSelectedTopic(t)}
-            className="flex items-center justify-between p-4 rounded-xl border border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.04] cursor-pointer transition-all"
-          >
+          <div key={t.id} onClick={() => handleTopicSelect(t)}
+            className="flex items-center justify-between p-4 rounded-xl border border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.04] cursor-pointer transition-all">
             <span className="text-sm text-white">{t.name}</span>
             <span className="text-white/30 text-xs">→</span>
           </div>
@@ -192,49 +220,38 @@ function StudyMaterialTab({ subject, topics }) {
 
   return (
     <div>
-      <button
-        onClick={() => setSelectedTopic(null)}
-        className="text-xs text-white/40 hover:text-white mb-4 flex items-center gap-1 transition-colors"
-      >
-        ← Back
-      </button>
+      <button onClick={() => setSelectedTopic(null)} className="text-xs text-white/40 hover:text-white mb-4 flex items-center gap-1 transition-colors">← Back</button>
       <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-5">
         <h3 className="text-white font-bold mb-1">{selectedTopic.name}</h3>
-        <p className="text-xs text-white/40 mb-4">
-          {mode === 'video' ? 'Top recommended videos' : 'AI-generated notes'}
-        </p>
-        {mode === 'video' ? (
+        <p className="text-xs text-white/40 mb-4">{mode === 'video' ? 'Top YouTube videos' : 'AI-generated notes'}</p>
+
+        {mode === 'video' && (
           <div className="space-y-3">
-            {['Gate Smashers — DBMS Full Lecture', 'Abdul Bari — Database Concepts', 'Neso Academy — Complete DBMS'].map((v, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-3 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06] hover:border-white/[0.12] cursor-pointer transition-all"
-              >
-                <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center text-sm">▶</div>
+            {loadingVideos && <p className="text-white/40 text-sm">Finding best videos...</p>}
+            {!loadingVideos && videos.map((v, i) => (
+              <a key={i} href={v.url} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-3 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06] hover:border-white/[0.15] cursor-pointer transition-all block">
+                <img src={v.thumbnail} alt={v.title} className="w-24 h-16 rounded object-cover flex-shrink-0" />
                 <div>
-                  <p className="text-sm text-white font-medium">{v}</p>
-                  <p className="text-xs text-white/30">YouTube • Highly rated</p>
+                  <p className="text-sm text-white font-medium line-clamp-2">{v.title}</p>
+                  <p className="text-xs text-white/30 mt-1">{v.channel} • YouTube</p>
                 </div>
-              </div>
+              </a>
             ))}
-            <p className="text-xs text-white/20 mt-2">* Real videos will load via YouTube API</p>
+            {!loadingVideos && videos.length === 0 && (
+              <p className="text-white/40 text-sm">No videos found.</p>
+            )}
           </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="p-4 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-              <p className="text-sm text-white/70 leading-relaxed">
-                <span className="text-white font-semibold">📌 Key concept:</span> {selectedTopic.name} is a
-                fundamental topic with high exam weightage. It covers core principles that appear frequently
-                in GATE and university exams.
-              </p>
-            </div>
-            <div className="p-4 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-              <p className="text-xs text-white/40 mb-2 font-semibold uppercase tracking-wider">Key points</p>
-              {['Core definition and purpose', 'Important properties to remember', 'Common exam question patterns', 'Quick revision formula'].map((point, i) => (
-                <p key={i} className="text-sm text-white/60 py-1">• {point}</p>
-              ))}
-            </div>
-            <p className="text-xs text-white/20">* Full AI-generated notes will load via Claude API</p>
+        )}
+
+        {mode === 'written' && (
+          <div>
+            {loadingExplanation && <p className="text-white/40 text-sm">AI is writing notes...</p>}
+            {!loadingExplanation && explanation && (
+              <div className="p-4 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                <p className="text-sm text-white/70 leading-relaxed whitespace-pre-line">{explanation}</p>
+              </div>
+            )}
           </div>
         )}
       </div>

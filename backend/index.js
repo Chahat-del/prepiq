@@ -15,6 +15,7 @@ app.use('/api/auth', require('./routes/auth'))
 app.use('/api/subjects', require('./routes/subjects'))
 app.use('/api/pyq', require('./routes/pyq'))
 app.use('/api/ai', require('./routes/ai'))
+app.use('/api/youtube', require('./routes/youtube'))
 
 // Health check
 app.get('/', (req, res) => {
