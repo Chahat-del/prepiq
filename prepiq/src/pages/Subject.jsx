@@ -139,11 +139,14 @@ function StudyMaterialTab({ subject, topics }) {
   const [selectedTopic, setSelectedTopic] = useState(null)
   const [videos, setVideos] = useState([])
   const [loadingVideos, setLoadingVideos] = useState(false)
+  const [videoError, setVideoError] = useState('')
   const [explanation, setExplanation] = useState('')
   const [loadingExplanation, setLoadingExplanation] = useState(false)
 
   const fetchVideos = async (topic) => {
     setLoadingVideos(true)
+    setVideoError('')
+    setVideos([])
     try {
       const res = await api.post('/youtube/videos', {
         topicName: topic.name,
@@ -153,6 +156,8 @@ function StudyMaterialTab({ subject, topics }) {
       setVideos(res.data.videos || [])
     } catch (err) {
       console.log('Video error:', err)
+      const msg = err.response?.data?.error || err.message || 'Failed to load videos'
+      setVideoError(msg)
     } finally {
       setLoadingVideos(false)
     }
@@ -177,6 +182,7 @@ function StudyMaterialTab({ subject, topics }) {
   const handleTopicSelect = (topic) => {
     setSelectedTopic(topic)
     setVideos([])
+    setVideoError('')
     setExplanation('')
     if (mode === 'video') fetchVideos(topic)
     if (mode === 'written') fetchExplanation(topic)
@@ -228,7 +234,10 @@ function StudyMaterialTab({ subject, topics }) {
         {mode === 'video' && (
           <div className="space-y-3">
             {loadingVideos && <p className="text-white/40 text-sm">Finding best videos...</p>}
-            {!loadingVideos && videos.map((v, i) => (
+            {!loadingVideos && videoError && (
+              <p className="text-[#D4537E] text-sm">⚠️ {videoError}</p>
+            )}
+            {!loadingVideos && !videoError && videos.map((v, i) => (
               <a key={i} href={v.url} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-3 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06] hover:border-white/[0.15] cursor-pointer transition-all block">
                 <img src={v.thumbnail} alt={v.title} className="w-24 h-16 rounded object-cover flex-shrink-0" />
@@ -238,7 +247,7 @@ function StudyMaterialTab({ subject, topics }) {
                 </div>
               </a>
             ))}
-            {!loadingVideos && videos.length === 0 && (
+            {!loadingVideos && !videoError && videos.length === 0 && (
               <p className="text-white/40 text-sm">No videos found.</p>
             )}
           </div>
@@ -444,121 +453,457 @@ function MockTest({ questions, onClose }) {
   )
 }
 
-function PYQTab() {
-  const [showSolution, setShowSolution] = useState(null)
+const FAMOUS_EXAM_KEYWORDS = ['JEE', 'NEET', 'GATE', 'UPSC', 'CAT', 'GMAT', 'GRE', 'SAT', 'IELTS', 'TOEFL']
+
+function isFamousExam(examName) {
+  if (!examName) return false
+  return FAMOUS_EXAM_KEYWORDS.some(k => examName.toUpperCase().includes(k))
+}
+
+function PYQTab({ subject, subjectId }) {
+  // Use is_famous from DB if set, otherwise derive from exam name
+  const famous = subject?.is_famous ?? isFamousExam(subject?.exam)
+
+  return famous
+    ? <FamousPYQTab subject={subject} subjectId={subjectId} />
+    : <CustomPYQTab subject={subject} subjectId={subjectId} />
+}
+
+// ─── Famous exam PYQ: AI generates real past-style questions, no upload ───────
+function FamousPYQTab({ subject, subjectId }) {
+  const [papers, setPapers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
+  const [generateError, setGenerateError] = useState('')
+  const [activePaper, setActivePaper] = useState(null)
   const [mockActive, setMockActive] = useState(false)
+  const [showSolution, setShowSolution] = useState(null)
   const [filterTopic, setFilterTopic] = useState('All')
-  const [pyq, setPyq] = useState(null) // null = not uploaded yet
 
-  if (mockActive && pyq) return <MockTest questions={pyq.questions} onClose={() => setMockActive(false)} />
+  useEffect(() => { loadPapers() }, [subjectId])
 
-  if (!pyq) return (
-    <div className="border-2 border-dashed border-white/[0.1] rounded-2xl p-10 text-center mb-6">
-      <div className="text-4xl mb-3">📄</div>
-      <h3 className="text-white font-bold mb-2">Upload your PYQ paper</h3>
-      <p className="text-white/40 text-sm mb-4">
-        Upload a PDF of your previous year question paper to unlock solutions and mock tests
-      </p>
-      <button className="bg-[#5DCAA5] text-[#04342C] text-sm font-medium px-6 py-2.5 rounded-lg hover:brightness-110 transition-all">
-        Upload PDF
-      </button>
-    </div>
-  )
+  const loadPapers = async () => {
+    setLoading(true)
+    try {
+      const res = await api.get(`/ai/pyq/${subjectId}`)
+      const fetched = (res.data.papers || []).filter(p => p.source === 'ai_famous')
+      setPapers(fetched)
+      if (fetched.length > 0) setActivePaper(fetched[0])
+    } catch (err) {
+      console.log('Load papers error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
-  const topics = ['All', ...new Set(pyq.questions.map(q => q.topic))]
-  const filtered = filterTopic === 'All' ? pyq.questions : pyq.questions.filter(q => q.topic === filterTopic)
+  const generateNew = async () => {
+    setGenerating(true)
+    setGenerateError('')
+    try {
+      const res = await api.post('/ai/pyq/famous', {
+        subjectName: subject.name,
+        examName: subject.exam,
+        subjectId
+      })
+      const newPaper = res.data.paper
+      setPapers(prev => [newPaper, ...prev])
+      setActivePaper(newPaper)
+      setFilterTopic('All')
+    } catch (err) {
+      const msg = err.response?.data?.error || err.message || 'Generation failed'
+      const isQuota = msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('429')
+      setGenerateError(isQuota
+        ? 'Gemini API quota exceeded. Please wait until tomorrow or add billing at aistudio.google.com.'
+        : msg)
+      console.log('Generate PYQ error:', msg)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  if (mockActive && activePaper)
+    return <MockTest questions={activePaper.questions} onClose={() => setMockActive(false)} />
+
+  if (loading) return <p className="text-white/40 text-sm">Loading papers...</p>
+
+  const questions = activePaper?.questions || []
+  const topicFilters = ['All', ...new Set(questions.map(q => q.topic).filter(Boolean))]
+  const filtered = filterTopic === 'All' ? questions : questions.filter(q => q.topic === filterTopic)
 
   return (
     <div>
-      <div className="flex items-center justify-between bg-[#5DCAA5]/[0.06] border border-[#5DCAA5]/20 rounded-xl px-5 py-4 mb-6">
-        <div className="flex items-center gap-3">
-          <span className="text-xl">📄</span>
-          <div>
-            <p className="text-sm font-semibold text-white">{pyq.year} — Question Paper</p>
-            <p className="text-xs text-white/40">{pyq.questions.length} questions · MCQ format</p>
-          </div>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h3 className="text-white font-bold">Previous Year Questions</h3>
+          <p className="text-xs text-white/40 mt-0.5">AI-generated based on actual {subject.exam} patterns</p>
         </div>
-        <div className="flex items-center gap-3">
+        <button
+          onClick={generateNew}
+          disabled={generating}
+          className="bg-[#5DCAA5] text-[#04342C] text-sm font-medium px-4 py-2 rounded-lg hover:brightness-110 transition-all disabled:opacity-50 flex items-center gap-2"
+        >
+          {generating ? (
+            <><span className="w-3 h-3 border-2 border-[#04342C] border-t-transparent rounded-full animate-spin" />Generating...</>
+          ) : '+ Generate New Set'}
+        </button>
+      </div>
+
+      {/* Paper selector if multiple */}
+      {papers.length > 1 && (
+        <div className="flex gap-2 mb-5 flex-wrap">
+          {papers.map((p, i) => (
+            <button
+              key={p.id}
+              onClick={() => { setActivePaper(p); setFilterTopic('All') }}
+              className={`text-xs px-3 py-1.5 rounded-full border transition-all ${
+                activePaper?.id === p.id
+                  ? 'border-[#5DCAA5]/40 bg-[#5DCAA5]/10 text-[#5DCAA5]'
+                  : 'border-white/[0.08] text-white/40 hover:text-white'
+              }`}
+            >
+              Set {papers.length - i}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {generateError && (
+        <div className="mb-5 p-4 bg-[#D4537E]/[0.06] border border-[#D4537E]/20 rounded-xl">
+          <p className="text-sm text-[#D4537E]">⚠️ {generateError}</p>
+        </div>
+      )}
+
+      {/* No papers yet */}
+      {papers.length === 0 && !generating && (
+        <div className="border-2 border-dashed border-white/[0.1] rounded-2xl p-10 text-center">
+          <div className="text-4xl mb-3">📝</div>
+          <h3 className="text-white font-bold mb-2">No PYQs yet</h3>
+          <p className="text-white/40 text-sm mb-4">Generate AI-curated previous year style questions for {subject.exam}</p>
           <button
-            onClick={() => setMockActive(true)}
-            className="bg-[#5DCAA5] text-[#04342C] text-sm font-medium px-4 py-2 rounded-lg hover:brightness-110 transition-all"
+            onClick={generateNew}
+            disabled={generating}
+            className="bg-[#5DCAA5] text-[#04342C] text-sm font-medium px-6 py-2.5 rounded-lg hover:brightness-110 transition-all"
           >
-            Start mock test
-          </button>
-          <button
-            onClick={() => setPyq(null)}
-            className="text-xs text-white/40 hover:text-white border border-white/[0.1] px-3 py-2 rounded-lg transition-colors"
-          >
-            Replace PDF
+            Generate PYQs
           </button>
         </div>
-      </div>
-      <div className="flex gap-2 mb-5 flex-wrap">
-        {topics.map(t => (
-          <button
-            key={t}
-            onClick={() => setFilterTopic(t)}
-            className={`text-xs px-3 py-1.5 rounded-full border transition-all ${
-              filterTopic === t
-                ? 'border-[#5DCAA5]/40 bg-[#5DCAA5]/10 text-[#5DCAA5]'
-                : 'border-white/[0.08] text-white/40 hover:text-white'
-            }`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-      <div className="space-y-3">
-        {filtered.map(q => (
-          <div key={q.id} className="border border-white/[0.08] bg-white/[0.02] rounded-xl overflow-hidden">
-            <div className="p-5">
-              <div className="flex items-start gap-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-xs text-white/30 font-medium">Q{q.id}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${diffColor[q.difficulty]}`}>
-                      {q.difficulty}
-                    </span>
-                    <span className="text-xs text-white/30">{q.topic}</span>
-                    <span className="text-xs text-white/20">· {q.marks}M</span>
-                  </div>
-                  <p className="text-sm text-white/80 leading-relaxed">{q.question}</p>
-                  <div className="grid grid-cols-2 gap-2 mt-3">
-                    {q.options.map((opt, j) => (
-                      <div
-                        key={j}
-                        className={`text-xs px-3 py-2 rounded-lg border ${
-                          j === q.answer
-                            ? 'border-[#5DCAA5]/30 bg-[#5DCAA5]/[0.06] text-[#5DCAA5]'
-                            : 'border-white/[0.06] text-white/40'
-                        }`}
-                      >
-                        {String.fromCharCode(65 + j)}. {opt}
-                      </div>
-                    ))}
-                  </div>
-                </div>
+      )}
+
+      {generating && papers.length === 0 && (
+        <div className="flex items-center gap-3 p-6 border border-white/[0.08] rounded-xl">
+          <span className="w-5 h-5 border-2 border-[#5DCAA5] border-t-transparent rounded-full animate-spin" />
+          <p className="text-white/60 text-sm">AI is generating {subject.exam} questions for {subject.name}...</p>
+        </div>
+      )}
+
+      {/* Active paper */}
+      {activePaper && (
+        <>
+          <div className="flex items-center justify-between bg-[#5DCAA5]/[0.06] border border-[#5DCAA5]/20 rounded-xl px-5 py-4 mb-5">
+            <div className="flex items-center gap-3">
+              <span className="text-xl">📄</span>
+              <div>
+                <p className="text-sm font-semibold text-white">{activePaper.title}</p>
+                <p className="text-xs text-white/40">{questions.length} questions · {subject.exam} style</p>
               </div>
             </div>
-            <div className="border-t border-white/[0.06] px-5 py-3">
+            <button
+              onClick={() => setMockActive(true)}
+              className="bg-[#5DCAA5] text-[#04342C] text-sm font-medium px-4 py-2 rounded-lg hover:brightness-110 transition-all"
+            >
+              Start Mock Test
+            </button>
+          </div>
+
+          <div className="flex gap-2 mb-5 flex-wrap">
+            {topicFilters.map(t => (
+              <button key={t} onClick={() => setFilterTopic(t)}
+                className={`text-xs px-3 py-1.5 rounded-full border transition-all ${
+                  filterTopic === t
+                    ? 'border-[#5DCAA5]/40 bg-[#5DCAA5]/10 text-[#5DCAA5]'
+                    : 'border-white/[0.08] text-white/40 hover:text-white'
+                }`}>{t}</button>
+            ))}
+          </div>
+
+          <div className="space-y-3">
+            {filtered.map((q, idx) => (
+              <QuestionCard key={idx} q={q} idx={idx} showSolution={showSolution} setShowSolution={setShowSolution} />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── Custom subject PYQ: upload past paper + generate similar from syllabus ───
+function CustomPYQTab({ subject, subjectId }) {
+  const [papers, setPapers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [activePaper, setActivePaper] = useState(null)
+  const [mockActive, setMockActive] = useState(false)
+  const [showSolution, setShowSolution] = useState(null)
+  const [filterTopic, setFilterTopic] = useState('All')
+  const [uploadError, setUploadError] = useState('')
+  const fileInputRef = useState(null)
+
+  useEffect(() => { loadPapers() }, [subjectId])
+
+  const loadPapers = async () => {
+    setLoading(true)
+    try {
+      const res = await api.get(`/ai/pyq/${subjectId}`)
+      const fetched = res.data.papers || []
+      setPapers(fetched)
+      if (fetched.length > 0) setActivePaper(fetched[0])
+    } catch (err) {
+      console.log('Load papers error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadError('')
+    setUploading(true)
+
+    try {
+      const reader = new FileReader()
+      reader.onload = async (ev) => {
+        const base64 = ev.target.result.split(',')[1]
+        const mimeType = file.type || 'application/pdf'
+        try {
+          const res = await api.post('/ai/pyq/upload', {
+            subjectId,
+            subjectName: subject.name,
+            examName: subject.exam,
+            imageBase64: base64,
+            mimeType,
+            title: `${subject.name} — ${file.name.replace(/\.[^.]+$/, '')}`
+          })
+          const newPaper = res.data.paper
+          setPapers(prev => [newPaper, ...prev])
+          setActivePaper(newPaper)
+          setFilterTopic('All')
+        } catch (err) {
+          setUploadError(err.response?.data?.error || 'Upload failed')
+        } finally {
+          setUploading(false)
+        }
+      }
+      reader.readAsDataURL(file)
+    } catch (err) {
+      setUploadError('Failed to read file')
+      setUploading(false)
+    }
+  }
+
+  const generateSimilar = async () => {
+    setGenerating(true)
+    try {
+      const res = await api.post('/ai/pyq/generate-similar', {
+        subjectId,
+        subjectName: subject.name,
+        examName: subject.exam
+      })
+      const newPaper = res.data.paper
+      setPapers(prev => [newPaper, ...prev])
+      setActivePaper(newPaper)
+      setFilterTopic('All')
+    } catch (err) {
+      console.log('Generate similar error:', err)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  if (mockActive && activePaper)
+    return <MockTest questions={activePaper.questions.filter(q => q.type === 'mcq' || !q.type)} onClose={() => setMockActive(false)} />
+
+  if (loading) return <p className="text-white/40 text-sm">Loading papers...</p>
+
+  const uploadedPapers = papers.filter(p => p.source === 'uploaded')
+  const generatedPapers = papers.filter(p => p.source === 'ai_similar')
+  const questions = activePaper?.questions || []
+  const topicFilters = ['All', ...new Set(questions.map(q => q.topic).filter(Boolean))]
+  const filtered = filterTopic === 'All' ? questions : questions.filter(q => q.topic === filterTopic)
+  const mcqCount = questions.filter(q => q.type === 'mcq').length
+
+  return (
+    <div>
+      {/* Action bar */}
+      <div className="flex items-center gap-3 mb-6 flex-wrap">
+        {/* Upload past paper */}
+        <label className={`flex items-center gap-2 border border-white/[0.12] text-white text-sm font-medium px-4 py-2 rounded-lg cursor-pointer hover:bg-white/[0.04] transition-all ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
+          {uploading ? (
+            <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />Processing...</>
+          ) : (
+            <><span>📤</span> Upload Past Paper</>
+          )}
+          <input type="file" accept=".pdf,image/*" className="hidden" onChange={handleUpload} />
+        </label>
+
+        {/* Generate similar from syllabus */}
+        <button
+          onClick={generateSimilar}
+          disabled={generating}
+          className="flex items-center gap-2 bg-[#5DCAA5] text-[#04342C] text-sm font-medium px-4 py-2 rounded-lg hover:brightness-110 transition-all disabled:opacity-50"
+        >
+          {generating ? (
+            <><span className="w-3 h-3 border-2 border-[#04342C] border-t-transparent rounded-full animate-spin" />Generating...</>
+          ) : (
+            <><span>✨</span> Generate Similar Paper</>
+          )}
+        </button>
+      </div>
+
+      {uploadError && <p className="text-[#D4537E] text-sm mb-4">⚠️ {uploadError}</p>}
+
+      {(uploading || generating) && papers.length === 0 && (
+        <div className="flex items-center gap-3 p-6 border border-white/[0.08] rounded-xl mb-4">
+          <span className="w-5 h-5 border-2 border-[#5DCAA5] border-t-transparent rounded-full animate-spin" />
+          <p className="text-white/60 text-sm">
+            {uploading ? 'AI is reading your paper and generating solutions...' : 'AI is generating a paper based on your syllabus...'}
+          </p>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {papers.length === 0 && !uploading && !generating && (
+        <div className="border-2 border-dashed border-white/[0.1] rounded-2xl p-10 text-center">
+          <div className="text-4xl mb-3">📄</div>
+          <h3 className="text-white font-bold mb-2">No papers yet</h3>
+          <p className="text-white/40 text-sm">Upload a past paper to get AI-generated solutions, or generate a new paper based on your syllabus.</p>
+        </div>
+      )}
+
+      {/* Paper tabs */}
+      {papers.length > 0 && (
+        <>
+          <div className="flex gap-2 mb-5 flex-wrap">
+            {papers.map((p) => (
               <button
-                onClick={() => setShowSolution(showSolution === q.id ? null : q.id)}
-                className="text-xs text-[#5DCAA5] hover:underline transition-colors"
+                key={p.id}
+                onClick={() => { setActivePaper(p); setFilterTopic('All') }}
+                className={`text-xs px-3 py-1.5 rounded-full border transition-all flex items-center gap-1.5 ${
+                  activePaper?.id === p.id
+                    ? 'border-[#5DCAA5]/40 bg-[#5DCAA5]/10 text-[#5DCAA5]'
+                    : 'border-white/[0.08] text-white/40 hover:text-white'
+                }`}
               >
-                {showSolution === q.id ? 'Hide solution ↑' : 'Show solution ↓'}
+                {p.source === 'uploaded' ? '📤' : '✨'} {p.title}
               </button>
-            </div>
-            {showSolution === q.id && (
-              <div className="px-5 pb-5 border-t border-white/[0.04]">
-                <div className="bg-white/[0.03] rounded-lg p-4 mt-3">
-                  <p className="text-xs text-[#5DCAA5] font-semibold mb-2">💡 Solution</p>
-                  <p className="text-sm text-white/60 leading-relaxed">{q.solution}</p>
-                </div>
-              </div>
-            )}
+            ))}
           </div>
-        ))}
+
+          {activePaper && (
+            <>
+              <div className="flex items-center justify-between bg-white/[0.03] border border-white/[0.08] rounded-xl px-5 py-4 mb-5">
+                <div className="flex items-center gap-3">
+                  <span className="text-xl">{activePaper.source === 'uploaded' ? '📤' : '✨'}</span>
+                  <div>
+                    <p className="text-sm font-semibold text-white">{activePaper.title}</p>
+                    <p className="text-xs text-white/40">
+                      {questions.length} questions
+                      {activePaper.source === 'uploaded' ? ' · AI-solved' : ' · AI-generated from syllabus'}
+                      {mcqCount > 0 && ` · ${mcqCount} MCQ`}
+                    </p>
+                  </div>
+                </div>
+                {mcqCount > 0 && (
+                  <button
+                    onClick={() => setMockActive(true)}
+                    className="bg-[#5DCAA5] text-[#04342C] text-sm font-medium px-4 py-2 rounded-lg hover:brightness-110 transition-all"
+                  >
+                    Start Mock Test
+                  </button>
+                )}
+              </div>
+
+              <div className="flex gap-2 mb-5 flex-wrap">
+                {topicFilters.map(t => (
+                  <button key={t} onClick={() => setFilterTopic(t)}
+                    className={`text-xs px-3 py-1.5 rounded-full border transition-all ${
+                      filterTopic === t
+                        ? 'border-[#5DCAA5]/40 bg-[#5DCAA5]/10 text-[#5DCAA5]'
+                        : 'border-white/[0.08] text-white/40 hover:text-white'
+                    }`}>{t}</button>
+                ))}
+              </div>
+
+              <div className="space-y-3">
+                {filtered.map((q, idx) => (
+                  <QuestionCard key={idx} q={q} idx={idx} showSolution={showSolution} setShowSolution={setShowSolution} />
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── Shared question card used by both PYQ tabs ───────────────────────────────
+function QuestionCard({ q, idx, showSolution, setShowSolution }) {
+  const key = `${idx}`
+  return (
+    <div className="border border-white/[0.08] bg-white/[0.02] rounded-xl overflow-hidden">
+      <div className="p-5">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs text-white/30 font-medium">Q{idx + 1}</span>
+          {q.difficulty && (
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${diffColor[q.difficulty] || 'text-white/40 bg-white/[0.05]'}`}>
+              {q.difficulty}
+            </span>
+          )}
+          {q.topic && <span className="text-xs text-white/30">{q.topic}</span>}
+          {q.marks && <span className="text-xs text-white/20">· {q.marks}M</span>}
+          {q.type === 'subjective' && (
+            <span className="text-xs text-[#7F77DD] bg-[#7F77DD]/10 px-2 py-0.5 rounded-full">Subjective</span>
+          )}
+        </div>
+        <p className="text-sm text-white/80 leading-relaxed">{q.question}</p>
+        {q.type !== 'subjective' && q.options?.length > 0 && (
+          <div className="grid grid-cols-2 gap-2 mt-3">
+            {q.options.map((opt, j) => (
+              <div key={j} className={`text-xs px-3 py-2 rounded-lg border ${
+                j === q.answer
+                  ? 'border-[#5DCAA5]/30 bg-[#5DCAA5]/[0.06] text-[#5DCAA5]'
+                  : 'border-white/[0.06] text-white/40'
+              }`}>
+                {String.fromCharCode(65 + j)}. {opt}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+      {q.solution && (
+        <>
+          <div className="border-t border-white/[0.06] px-5 py-3">
+            <button
+              onClick={() => setShowSolution(showSolution === key ? null : key)}
+              className="text-xs text-[#5DCAA5] hover:underline transition-colors"
+            >
+              {showSolution === key ? 'Hide solution ↑' : 'Show solution ↓'}
+            </button>
+          </div>
+          {showSolution === key && (
+            <div className="px-5 pb-5 border-t border-white/[0.04]">
+              <div className="bg-white/[0.03] rounded-lg p-4 mt-3">
+                <p className="text-xs text-[#5DCAA5] font-semibold mb-2">💡 Solution</p>
+                <p className="text-sm text-white/60 leading-relaxed whitespace-pre-line">{q.solution}</p>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }
@@ -811,7 +1156,7 @@ function Subject() {
         {activeTab === 'roadmap' && <RoadmapTab topics={topics} subject={subject} />}
         {activeTab === 'topics' && <TopicsTab topics={topics} setTopics={setTopics} />}
         {activeTab === 'material' && <StudyMaterialTab subject={subject} topics={topics} />}
-        {activeTab === 'pyq' && <PYQTab />}
+        {activeTab === 'pyq' && <PYQTab subject={subject} subjectId={id} />}
         {activeTab === 'progress' && <ProgressTab topics={topics} />}
       </div>
     </div>

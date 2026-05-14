@@ -317,7 +317,92 @@ Extract every question you can see. Return only the JSON array, nothing else.`
   }
 }
 
-// ─── 6. Get all saved PYQ papers for a subject ────────────────────────────────
+// ─── 9. Generate similar question paper based on uploaded syllabus topics ─────
+const generateSimilarPaper = async (req, res) => {
+  const { subjectId, subjectName, examName } = req.body
+
+  if (!subjectId || !subjectName)
+    return res.status(400).json({ error: 'Missing required fields' })
+
+  try {
+    // Fetch the topics that were generated from the syllabus
+    const { data: topics, error: topicsError } = await supabase
+      .from('topics')
+      .select('name, weightage')
+      .eq('subject_id', subjectId)
+      .order('created_at', { ascending: true })
+
+    if (topicsError) throw topicsError
+    if (!topics || topics.length === 0)
+      return res.status(400).json({ error: 'No topics found for this subject' })
+
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+
+    const topicList = topics.map(t => `${t.name} (${t.weightage} weightage)`).join('\n')
+
+    const prompt = `You are an expert university exam paper setter. Generate a realistic college exam question paper for "${subjectName}" based on the following syllabus topics.
+
+Syllabus topics:
+${topicList}
+
+Generate 10 questions. Mix MCQ and subjective questions based on typical college exam patterns.
+Give more questions to High weightage topics.
+
+Return ONLY a valid JSON array like this:
+[
+  {
+    "question": "Full question text here",
+    "type": "mcq",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "answer": 1,
+    "solution": "Detailed step-by-step solution here",
+    "topic": "Topic name from syllabus",
+    "difficulty": "Medium",
+    "marks": 2
+  },
+  {
+    "question": "Explain the concept of...",
+    "type": "subjective",
+    "options": [],
+    "answer": 0,
+    "solution": "Model answer here with key points to cover",
+    "topic": "Topic name from syllabus",
+    "difficulty": "Hard",
+    "marks": 5
+  }
+]
+
+For MCQ: type="mcq", options has 4 items, answer is 0-based index.
+For subjective: type="subjective", options=[], answer=0.
+difficulty: Easy / Medium / Hard
+Return only the JSON array, nothing else.`
+
+    const result = await model.generateContent(prompt)
+    const text = result.response.text()
+    const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim()
+    const questions = JSON.parse(cleaned)
+
+    // Save to pyq_papers table
+    const { data, error } = await supabase
+      .from('pyq_papers')
+      .insert([{
+        subject_id: subjectId,
+        title: `${subjectName} — AI Generated Paper`,
+        questions,
+        source: 'ai_similar'
+      }])
+      .select()
+      .single()
+
+    if (error) throw error
+
+    res.json({ paper: data })
+
+  } catch (err) {
+    console.log('Generate Similar Paper Error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+}
 const getPapers = async (req, res) => {
   const { subjectId } = req.params
 
@@ -381,4 +466,5 @@ module.exports = {
   getPapers,
   saveMockResult,
   getMockResults,
+  generateSimilarPaper,
 }

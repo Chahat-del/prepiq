@@ -24,7 +24,7 @@ const getSubjects = async (req, res) => {
 
 const createSubject = async (req, res) => {
   const userId = req.user.id
-  const { name, exam, color } = req.body
+  const { name, exam, color, is_famous } = req.body
 
   if (!name || !exam)
     return res.status(400).json({ error: 'Name and exam are required' })
@@ -32,7 +32,7 @@ const createSubject = async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('subjects')
-      .insert([{ user_id: userId, name, exam, color: color || '#5DCAA5' }])
+      .insert([{ user_id: userId, name, exam, color: color || '#5DCAA5', is_famous: is_famous || false }])
       .select()
       .single()
 
