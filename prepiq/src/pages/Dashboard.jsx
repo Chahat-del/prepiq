@@ -20,22 +20,29 @@ function ProgressRing({ progress, color, size = 64 }) {
   )
 }
 
-function SubjectCard({ subject, onClick }) {
+function SubjectCard({ subject, onClick, onDelete }) {
   const progress = subject.progress || 0
   return (
     <div onClick={onClick}
-      className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-6 cursor-pointer hover:bg-white/[0.06] hover:border-white/[0.15] transition-all group">
+      className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-6 cursor-pointer hover:bg-white/[0.06] hover:border-white/[0.15] transition-all group relative">
+      <button 
+        onClick={(e) => { e.stopPropagation(); onDelete(subject); }}
+        className="absolute top-4 right-4 w-8 h-8 rounded-full bg-black/40 border border-white/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-[#D4537E]/20 hover:text-[#D4537E] hover:border-[#D4537E]/40 z-10 text-white/40"
+        title="Delete subject"
+      >
+        <span className="text-sm">🗑️</span>
+      </button>
       <div className="flex items-start justify-between mb-4">
-        <div>
-          <h3 className="text-white font-bold text-base mb-1 group-hover:text-[#5DCAA5] transition-colors">{subject.name}</h3>
+        <div className="pr-10">
+          <h3 className="text-white font-bold text-base mb-1 group-hover:text-[#5DCAA5] transition-colors line-clamp-1">{subject.name}</h3>
           <div className="flex items-center gap-2">
             <span className="text-xs text-white/30 bg-white/[0.05] px-2 py-1 rounded-full">{subject.exam}</span>
             {subject.is_famous && (
-              <span className="text-xs text-[#EF9F27] bg-[#EF9F27]/10 px-2 py-1 rounded-full">Famous Exam</span>
+              <span className="text-xs text-[#EF9F27] bg-[#EF9F27]/10 px-2 py-1 rounded-full whitespace-nowrap">Famous Exam</span>
             )}
           </div>
         </div>
-        <div className="relative flex items-center justify-center">
+        <div className="relative flex items-center justify-center flex-shrink-0">
           <ProgressRing progress={progress} color={subject.color || '#5DCAA5'} />
           <span className="absolute text-xs font-bold text-white">{progress}%</span>
         </div>
@@ -248,10 +255,14 @@ function Dashboard() {
           subjectName: subject,
           examName: exam,
           subjectId: newSubject.id,
-          // Pass syllabus text for college subjects
-          syllabusText: syllabusText && !syllabusFileType?.includes('pdf')
+          // Pass syllabus text for text files, or base64 for PDFs/images
+          syllabusText: syllabusText && !syllabusText.startsWith('data:')
             ? syllabusText
             : null,
+          syllabusBase64: syllabusText && syllabusText.startsWith('data:')
+            ? syllabusText.split(',')[1]
+            : null,
+          mimeType: syllabusFileType || 'application/pdf'
         })
       } catch (aiErr) {
         console.log('AI topic error:', aiErr)
@@ -280,6 +291,18 @@ function Dashboard() {
     } finally {
       setAddingSubject(false)
       setLoadingMessage('')
+    }
+  }
+
+  const handleDelete = async (subject) => {
+    if (!window.confirm(`Are you sure you want to delete ${subject.name}? This will remove all topics, notes, and progress permanently.`)) return
+
+    try {
+      await api.delete(`/subjects/${subject.id}`)
+      setSubjects(subjects.filter(s => s.id !== subject.id))
+    } catch (err) {
+      console.log('Error deleting subject:', err)
+      alert('Error: ' + (err.response?.data?.error || err.message))
     }
   }
 
@@ -346,7 +369,8 @@ function Dashboard() {
           <div className="grid grid-cols-2 gap-4">
             {subjects.map(subject => (
               <SubjectCard key={subject.id} subject={subject}
-                onClick={() => navigate(`/subject/${subject.id}`)} />
+                onClick={() => navigate(`/subject/${subject.id}`)}
+                onDelete={handleDelete} />
             ))}
             <div onClick={() => setShowModal(true)}
               className="border border-dashed border-white/[0.1] rounded-2xl p-6 flex flex-col items-center justify-center cursor-pointer hover:border-[#5DCAA5]/40 hover:bg-white/[0.02] transition-all group min-h-[140px]">

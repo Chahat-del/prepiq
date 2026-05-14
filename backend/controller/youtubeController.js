@@ -7,7 +7,8 @@ const getVideos = async (req, res) => {
   if (!topicName) return res.status(400).json({ error: 'Topic name required' })
 
   try {
-    const query = `${topicName} ${subjectName} ${examName} lecture explanation`
+    const safeExam = examName === 'College / Custom' ? '' : examName || ''
+    const query = `${topicName} ${subjectName} ${safeExam} lecture tutorial`.trim()
     const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
       params: {
         part: 'snippet',

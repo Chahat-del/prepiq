@@ -88,4 +88,27 @@ const updateTopic = async (req, res) => {
   }
 }
 
-module.exports = { getSubjects, createSubject, getSubjectById, updateTopic }
+const deleteSubject = async (req, res) => {
+  const { id } = req.params
+  const userId = req.user.id
+
+  try {
+    // Delete related records manually to handle cases where ON DELETE CASCADE is missing
+    await supabase.from('topics').delete().eq('subject_id', id)
+    await supabase.from('mock_results').delete().eq('subject_id', id)
+    await supabase.from('pyq_papers').delete().eq('subject_id', id)
+
+    const { data, error } = await supabase
+      .from('subjects')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId)
+
+    if (error) throw error
+    res.json({ message: 'Subject deleted successfully' })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+module.exports = { getSubjects, createSubject, getSubjectById, updateTopic, deleteSubject }

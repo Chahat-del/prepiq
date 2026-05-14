@@ -30,7 +30,7 @@ const fallbackTopics = {
 
 // ─── 1. Generate topics (from AI or syllabus text) ───────────────────────────
 const generateTopics = async (req, res) => {
-  const { subjectName, examName, subjectId, syllabusText } = req.body
+  const { subjectName, examName, subjectId, syllabusText, syllabusBase64, mimeType } = req.body
 
   if (!subjectName || !examName || !subjectId)
     return res.status(400).json({ error: 'Missing required fields' })
@@ -39,15 +39,34 @@ const generateTopics = async (req, res) => {
     let topics = []
 
     try {
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' })
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
-      // If syllabus text was uploaded, extract topics from it
-      // Otherwise generate from knowledge of the exam
-      const prompt = syllabusText
-        ? `You are an expert educator. Extract all topics from this syllabus for "${subjectName}".
+      let promptParts = []
+
+      if (syllabusBase64) {
+        promptParts = [
+          `You are an expert educator. Extract ALL specific, detailed topics from the attached syllabus document for "${subjectName}". Do not be vague or skip topics; read the syllabus thoroughly and extract every single granular topic mentioned.
+
+Return ONLY a valid JSON array like this:
+[
+  {"name": "Topic Name", "weightage": "High"},
+  {"name": "Topic Name", "weightage": "Medium"}
+]
+Weightage: High/Medium/Low based on how much content is dedicated to each topic.
+Return only the JSON array, nothing else.`,
+          {
+            inlineData: {
+              data: syllabusBase64,
+              mimeType: mimeType || 'application/pdf'
+            }
+          }
+        ]
+      } else if (syllabusText) {
+        promptParts = [
+          `You are an expert educator. Extract ALL specific, detailed topics from this syllabus text for "${subjectName}". Do not be vague or skip topics; read the syllabus thoroughly and extract every single granular topic mentioned.
 
 Syllabus content:
-${syllabusText.slice(0, 4000)}
+${syllabusText.slice(0, 8000)}
 
 Return ONLY a valid JSON array like this:
 [
@@ -56,7 +75,10 @@ Return ONLY a valid JSON array like this:
 ]
 Weightage: High/Medium/Low based on how much content is dedicated to each topic.
 Return only the JSON array, nothing else.`
-        : `You are an expert educator. Generate a comprehensive list of topics for "${subjectName}" for the "${examName}" exam.
+        ]
+      } else {
+        promptParts = [
+          `You are an expert educator. Generate a comprehensive list of topics for "${subjectName}" for the "${examName}" exam.
 
 Return ONLY a valid JSON array like this:
 [
@@ -65,8 +87,10 @@ Return ONLY a valid JSON array like this:
 ]
 Weightage: High/Medium/Low based on how frequently this topic appears in ${examName} exams.
 Generate 10-15 topics. Return only the JSON array, nothing else.`
+        ]
+      }
 
-      const result = await model.generateContent(prompt)
+      const result = await model.generateContent(promptParts)
       const text = result.response.text()
       const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim()
       topics = JSON.parse(cleaned)
@@ -112,7 +136,7 @@ const generateRoadmap = async (req, res) => {
   const { subjectName, examName, topics } = req.body
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
     const prompt = `You are an expert educator. Create a week-by-week study roadmap for "${subjectName}" for "${examName}" exam.
 
@@ -144,9 +168,10 @@ const explainTopic = async (req, res) => {
   const { topicName, subjectName, examName } = req.body
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
-    const prompt = `You are an expert teacher explaining "${topicName}" from ${subjectName} for ${examName} exam.
+    const safeExam = examName === 'College / Custom' ? 'university' : examName || 'university'
+    const prompt = `You are an expert teacher explaining "${topicName}" from ${subjectName} for a ${safeExam} student.
 
 Provide a clear, concise explanation with:
 1. Core concept definition
@@ -175,7 +200,7 @@ const generateFamousPYQ = async (req, res) => {
     return res.status(400).json({ error: 'Missing required fields' })
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
     const prompt = `You are an expert educator for ${examName}. Generate 10 realistic previous year style MCQ questions for "${subjectName}" in ${examName}.
 
@@ -232,7 +257,7 @@ const processUploadedPaper = async (req, res) => {
     return res.status(400).json({ error: 'Missing subjectId or image data' })
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
     // Send image to Gemini and extract + answer questions
     const prompt = `You are an expert educator. Look at this question paper image carefully.
