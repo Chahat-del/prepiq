@@ -1,6 +1,7 @@
 import api from '../services/api'
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import UserMenu from '../components/UserMenu'
 
 const weightageColor = {
   High: 'text-[#5DCAA5] bg-[#5DCAA5]/10',
@@ -269,11 +270,26 @@ function StudyMaterialTab({ subject, topics }) {
 }
 
 // ─── FIX 5: useState → useEffect for the timer ───
-function MockTest({ questions, onClose }) {
+function MockTest({ questions, onClose, subjectId, paperId }) {
   const [current, setCurrent] = useState(0)
   const [answers, setAnswers] = useState({})
   const [submitted, setSubmitted] = useState(false)
   const [timeLeft, setTimeLeft] = useState(questions.length * 90)
+
+  const score = questions.reduce((acc, q, i) => acc + (answers[i] === q.answer ? q.marks : 0), 0)
+  const total = questions.reduce((acc, q) => acc + (q.marks || 1), 0)
+
+  // Save result when submitted
+  useEffect(() => {
+    if (!submitted || !subjectId) return
+    api.post('/ai/mock/result', {
+      subjectId,
+      paperId: paperId || null,
+      score,
+      total,
+      answers
+    }).catch(err => console.log('Save result error:', err))
+  }, [submitted])
 
   useEffect(() => {
     if (submitted) return
@@ -292,8 +308,6 @@ function MockTest({ questions, onClose }) {
 
   const mins = String(Math.floor(timeLeft / 60)).padStart(2, '0')
   const secs = String(timeLeft % 60).padStart(2, '0')
-  const score = questions.reduce((acc, q, i) => acc + (answers[i] === q.answer ? q.marks : 0), 0)
-  const total = questions.reduce((acc, q) => acc + q.marks, 0)
 
   if (submitted) return (
     <div className="fixed inset-0 bg-[#0a0a0f] z-50 flex items-center justify-center px-4">
@@ -522,7 +536,7 @@ function FamousPYQTab({ subject, subjectId }) {
   }
 
   if (mockActive && activePaper)
-    return <MockTest questions={activePaper.questions} onClose={() => setMockActive(false)} />
+    return <MockTest questions={activePaper.questions} subjectId={subjectId} paperId={activePaper.id} onClose={() => setMockActive(false)} />
 
   if (loading) return <p className="text-white/40 text-sm">Loading papers...</p>
 
@@ -724,7 +738,7 @@ function CustomPYQTab({ subject, subjectId }) {
   }
 
   if (mockActive && activePaper)
-    return <MockTest questions={activePaper.questions.filter(q => q.type === 'mcq' || !q.type)} onClose={() => setMockActive(false)} />
+    return <MockTest questions={activePaper.questions.filter(q => q.type === 'mcq' || !q.type)} subjectId={subjectId} paperId={activePaper.id} onClose={() => setMockActive(false)} />
 
   if (loading) return <p className="text-white/40 text-sm">Loading papers...</p>
 
@@ -908,35 +922,46 @@ function QuestionCard({ q, idx, showSolution, setShowSolution }) {
   )
 }
 
-function ProgressTab({ topics }) {
+function ProgressTab({ topics, subjectId }) {
   const done = topics.filter(t => t.done).length
   const total = topics.length
   const percent = Math.round((done / total) * 100) || 0
 
-  const dummyTestScores = [
-    { label: 'Test 1', score: 45, total: 70 },
-    { label: 'Test 2', score: 52, total: 70 },
-    { label: 'Test 3', score: 61, total: 70 },
-    { label: 'Test 4', score: 58, total: 70 },
-    { label: 'Test 5', score: 65, total: 70 },
-  ]
+  const [mockResults, setMockResults] = useState([])
+  const [loadingResults, setLoadingResults] = useState(true)
+
+  useEffect(() => {
+    const fetchResults = async () => {
+      try {
+        const res = await api.get(`/ai/mock/results/${subjectId}`)
+        setMockResults(res.data.results || [])
+      } catch (err) {
+        console.log('Error fetching mock results:', err)
+      } finally {
+        setLoadingResults(false)
+      }
+    }
+    fetchResults()
+  }, [subjectId])
 
   const weakTopics = topics.filter(t => !t.done && t.weightage === 'High')
   const strongTopics = topics.filter(t => t.done)
-  const maxScore = Math.max(...dummyTestScores.map(t => t.total))
+
+  const testsTaken = mockResults.length
+  const avgScore = testsTaken > 0
+    ? Math.round(mockResults.reduce((acc, r) => acc + (r.score / r.total) * 100, 0) / testsTaken)
+    : 0
+  const maxBarScore = mockResults.length > 0 ? Math.max(...mockResults.map(r => r.total)) : 1
 
   return (
     <div className="space-y-6">
+      {/* Stats grid */}
       <div className="grid grid-cols-4 gap-4">
         {[
           { label: 'Topics done', value: `${done}/${total}`, color: '#5DCAA5' },
           { label: 'Completion', value: `${percent}%`, color: '#7F77DD' },
-          { label: 'Tests taken', value: dummyTestScores.length, color: '#EF9F27' },
-          {
-            label: 'Avg score',
-            value: `${Math.round(dummyTestScores.reduce((a, b) => a + (b.score / b.total) * 100, 0) / dummyTestScores.length)}%`,
-            color: '#D4537E',
-          },
+          { label: 'Tests taken', value: testsTaken, color: '#EF9F27' },
+          { label: 'Avg score', value: testsTaken > 0 ? `${avgScore}%` : '—', color: '#D4537E' },
         ].map((s, i) => (
           <div key={i} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
             <div className="text-2xl font-black mb-1" style={{ color: s.color }}>{s.value}</div>
@@ -945,6 +970,7 @@ function ProgressTab({ topics }) {
         ))}
       </div>
 
+      {/* Exam readiness */}
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-bold text-white">Exam readiness</h3>
@@ -964,26 +990,56 @@ function ProgressTab({ topics }) {
         <p className="text-xs text-white/30">Based on topic completion and test performance</p>
       </div>
 
+      {/* Mock test scores chart */}
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
         <h3 className="text-sm font-bold text-white mb-4">Mock test scores</h3>
-        <div className="flex items-end gap-3 h-32">
-          {dummyTestScores.map((t, i) => {
-            const height = Math.round((t.score / maxScore) * 100)
-            return (
-              <div key={i} className="flex-1 flex flex-col items-center gap-2">
-                <span className="text-xs text-white/40">{Math.round((t.score / t.total) * 100)}%</span>
-                <div
-                  className="w-full rounded-t-md transition-all duration-700"
-                  style={{ height: `${height}%`, background: '#5DCAA5', opacity: 0.7 + i * 0.06 }}
-                />
-                <span className="text-xs text-white/30">{t.label}</span>
-              </div>
-            )
-          })}
-        </div>
-        <p className="text-xs text-white/20 mt-3">* Scores improving over time — keep it up!</p>
+        {loadingResults && <p className="text-white/40 text-sm">Loading results...</p>}
+        {!loadingResults && mockResults.length === 0 && (
+          <p className="text-white/30 text-sm">No mock tests taken yet. Complete a test in the PYQ tab to see your progress here.</p>
+        )}
+        {!loadingResults && mockResults.length > 0 && (
+          <>
+            <div className="flex items-end gap-3 h-32">
+              {mockResults.map((r, i) => {
+                const pct = Math.round((r.score / r.total) * 100)
+                const height = Math.max(8, pct)
+                return (
+                  <div key={r.id || i} className="flex-1 flex flex-col items-center gap-2">
+                    <span className="text-xs text-white/40">{pct}%</span>
+                    <div
+                      className="w-full rounded-t-md transition-all duration-700"
+                      style={{
+                        height: `${height}%`,
+                        background: pct >= 70 ? '#5DCAA5' : pct >= 40 ? '#EF9F27' : '#D4537E',
+                        opacity: 0.75
+                      }}
+                    />
+                    <span className="text-xs text-white/30">T{i + 1}</span>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="flex items-center justify-between mt-3">
+              <p className="text-xs text-white/20">
+                Best: {Math.max(...mockResults.map(r => Math.round((r.score / r.total) * 100)))}% ·
+                Latest: {Math.round((mockResults[mockResults.length - 1].score / mockResults[mockResults.length - 1].total) * 100)}%
+              </p>
+              {mockResults.length >= 2 && (() => {
+                const first = mockResults[0].score / mockResults[0].total
+                const last = mockResults[mockResults.length - 1].score / mockResults[mockResults.length - 1].total
+                const diff = Math.round((last - first) * 100)
+                return diff > 0
+                  ? <p className="text-xs text-[#5DCAA5]">↑ {diff}% improvement</p>
+                  : diff < 0
+                  ? <p className="text-xs text-[#D4537E]">↓ {Math.abs(diff)}% from first test</p>
+                  : null
+              })()}
+            </div>
+          </>
+        )}
       </div>
 
+      {/* Weak areas */}
       {weakTopics.length > 0 && (
         <div className="bg-[#D4537E]/[0.04] border border-[#D4537E]/20 rounded-xl p-5">
           <h3 className="text-sm font-bold text-white mb-3">⚠️ Weak areas — high priority</h3>
@@ -998,6 +1054,7 @@ function ProgressTab({ topics }) {
         </div>
       )}
 
+      {/* Strong areas */}
       {strongTopics.length > 0 && (
         <div className="bg-[#5DCAA5]/[0.04] border border-[#5DCAA5]/20 rounded-xl p-5">
           <h3 className="text-sm font-bold text-white mb-3">✅ Strong areas</h3>
@@ -1010,17 +1067,6 @@ function ProgressTab({ topics }) {
           </div>
         </div>
       )}
-
-      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
-        <h3 className="text-sm font-bold text-white mb-3">📝 PYQ coverage</h3>
-        <div className="flex items-center gap-4">
-          <div className="flex-1 h-2 bg-white/[0.06] rounded-full overflow-hidden">
-            <div className="h-full bg-[#7F77DD] rounded-full" style={{ width: '60%' }} />
-          </div>
-          <span className="text-sm font-bold text-[#7F77DD]">60%</span>
-        </div>
-        <p className="text-xs text-white/30 mt-2">3 of 5 PYQ questions practiced</p>
-      </div>
     </div>
   )
 }
@@ -1116,9 +1162,7 @@ function Subject() {
             Prep<span className="text-[#5DCAA5]">IQ</span>
           </div>
         </div>
-        <div className="w-8 h-8 rounded-full bg-[#5DCAA5]/20 border border-[#5DCAA5]/30 flex items-center justify-center text-xs font-bold text-[#5DCAA5]">
-          R
-        </div>
+        <UserMenu />
       </nav>
 
       <div className="px-10 py-6 border-b border-white/[0.06]">
@@ -1157,7 +1201,7 @@ function Subject() {
         {activeTab === 'topics' && <TopicsTab topics={topics} setTopics={setTopics} />}
         {activeTab === 'material' && <StudyMaterialTab subject={subject} topics={topics} />}
         {activeTab === 'pyq' && <PYQTab subject={subject} subjectId={id} />}
-        {activeTab === 'progress' && <ProgressTab topics={topics} />}
+        {activeTab === 'progress' && <ProgressTab topics={topics} subjectId={id} />}
       </div>
     </div>
   )

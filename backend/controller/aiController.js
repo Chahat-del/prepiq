@@ -117,11 +117,12 @@ Generate 10-15 topics. Return only the JSON array, nothing else.`
 
     if (error) throw error
 
-    // Mark subject as famous or not
+    // Mark subject as famous or not (ignore error if column doesn't exist yet)
     await supabase
       .from('subjects')
       .update({ is_famous: isFamousExam(examName) })
       .eq('id', subjectId)
+      .then(() => {}) // swallow error silently
 
     res.json({ topics: data })
 

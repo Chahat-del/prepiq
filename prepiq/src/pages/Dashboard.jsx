@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
+import UserMenu from '../components/UserMenu'
 
 const colors = ['#5DCAA5', '#7F77DD', '#EF9F27', '#D4537E', '#378ADD']
 const FAMOUS_EXAMS = ['GATE CS', 'CAT', 'JEE', 'UPSC', 'NEET']
@@ -324,9 +325,7 @@ function Dashboard() {
           Prep<span className="text-[#5DCAA5]">IQ</span>
         </div>
         <div className="flex items-center gap-4">
-          <div className="w-8 h-8 rounded-full bg-[#5DCAA5]/20 border border-[#5DCAA5]/30 flex items-center justify-center text-xs font-bold text-[#5DCAA5]">
-            {user?.name?.[0]?.toUpperCase()}
-          </div>
+          <UserMenu />
         </div>
       </nav>
 

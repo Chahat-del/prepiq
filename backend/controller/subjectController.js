@@ -30,11 +30,31 @@ const createSubject = async (req, res) => {
     return res.status(400).json({ error: 'Name and exam are required' })
 
   try {
-    const { data, error } = await supabase
-      .from('subjects')
-      .insert([{ user_id: userId, name, exam, color: color || '#5DCAA5', is_famous: is_famous || false }])
-      .select()
-      .single()
+    // Try inserting with is_famous first; fall back without it if column doesn't exist yet
+    let data, error
+    try {
+      ({ data, error } = await supabase
+        .from('subjects')
+        .insert([{ user_id: userId, name, exam, color: color || '#5DCAA5', is_famous: is_famous || false }])
+        .select()
+        .single())
+    } catch (_) {
+      // Column might not exist — insert without it
+      ;({ data, error } = await supabase
+        .from('subjects')
+        .insert([{ user_id: userId, name, exam, color: color || '#5DCAA5' }])
+        .select()
+        .single())
+    }
+
+    // If Supabase returned an error about the column, retry without it
+    if (error && error.message?.includes('is_famous')) {
+      ;({ data, error } = await supabase
+        .from('subjects')
+        .insert([{ user_id: userId, name, exam, color: color || '#5DCAA5' }])
+        .select()
+        .single())
+    }
 
     if (error) throw error
     res.status(201).json({ subject: data })
