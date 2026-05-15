@@ -1,25 +1,18 @@
-app.use(cors({ origin: true }))
-app.use(express.json())
 require('dotenv').config()
 const express = require('express')
 const cors = require('cors')
-const dotenv = require('dotenv')
-
-dotenv.config()
 
 const app = express()
 
-app.use(cors({
-  origin: true  // allows ALL origins — fine for now
-}))
-// Routes
+app.use(cors({ origin: true }))
+app.use(express.json())
+
 app.use('/api/auth', require('./routes/auth'))
 app.use('/api/subjects', require('./routes/subjects'))
 app.use('/api/pyq', require('./routes/pyq'))
 app.use('/api/ai', require('./routes/ai'))
 app.use('/api/youtube', require('./routes/youtube'))
 
-// Health check
 app.get('/', (req, res) => {
   res.json({ message: 'PrepIQ API running!' })
 })
