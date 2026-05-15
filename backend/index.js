@@ -8,10 +8,7 @@ dotenv.config()
 const app = express()
 
 app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'https://prepiq-two.vercel.app',
-  ]
+  origin: true  // allows ALL origins — fine for now
 }))
 // Routes
 app.use('/api/auth', require('./routes/auth'))
