@@ -10,7 +10,7 @@ const app = express()
 app.use(cors({
   origin: [
     'http://localhost:5173',
-    'https://prepiq.vercel.app',
+    'https://prepiq-two.vercel.app',
   ]
 }))
 // Routes
