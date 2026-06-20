@@ -27,7 +27,69 @@ const fallbackTopics = {
   'Chemistry': ['Physical Chemistry', 'Organic Chemistry', 'Inorganic Chemistry', 'Electrochemistry'],
   'Biology': ['Cell Biology', 'Genetics', 'Human Physiology', 'Ecology', 'Evolution'],
 }
+// Walks the raw text and only escapes control characters (newlines, tabs, etc.)
+// when they appear INSIDE a quoted JSON string — never touches the
+// formatting whitespace between tokens, so valid pretty-printed JSON is untouched.
+function sanitizeJsonControlChars(text) {
+  let result = ''
+  let inString = false
+  let escapeNext = false
 
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]
+    const code = text.charCodeAt(i)
+
+    if (escapeNext) {
+      result += char
+      escapeNext = false
+      continue
+    }
+
+    if (char === '\\' && inString) {
+      result += char
+      escapeNext = true
+      continue
+    }
+
+    if (char === '"') {
+      inString = !inString
+      result += char
+      continue
+    }
+
+    if (inString && code <= 0x1F) {
+      switch (char) {
+        case '\n': result += '\\n'; break
+        case '\r': result += '\\r'; break
+        case '\t': result += '\\t'; break
+        default: result += '\\u' + code.toString(16).padStart(4, '0')
+      }
+      continue
+    }
+
+    result += char
+  }
+
+  return result
+}
+
+// Drop-in replacement for JSON.parse(cleaned) — strips code fences,
+// tries a normal parse, and falls back to sanitizing control chars
+// inside strings if the first attempt fails.
+function safeJsonParse(rawText) {
+  const cleaned = rawText
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
+    .trim()
+
+  try {
+    return JSON.parse(cleaned)
+  } catch (err) {
+    console.log('JSON.parse failed, sanitizing control chars and retrying:', err.message)
+    const sanitized = sanitizeJsonControlChars(cleaned)
+    return JSON.parse(sanitized)
+  }
+}
 // ─── 1. Generate topics (from AI or syllabus text) ───────────────────────────
 const generateTopics = async (req, res) => {
   const { subjectName, examName, subjectId, syllabusText, syllabusBase64, mimeType } = req.body
@@ -39,9 +101,13 @@ const generateTopics = async (req, res) => {
     let topics = []
 
     try {
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+     // replace with:
+const model = genAI.getGenerativeModel({
+  model: 'gemini-2.5-flash',
+  generationConfig: { responseMimeType: 'application/json' }
+})
 
-      let promptParts = []
+let promptParts = []
 
       if (syllabusBase64) {
         promptParts = [
@@ -92,8 +158,7 @@ Generate 10-15 topics. Return only the JSON array, nothing else.`
 
       const result = await model.generateContent(promptParts)
       const text = result.response.text()
-      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim()
-      topics = JSON.parse(cleaned)
+topics = safeJsonParse(text)
     } catch (aiErr) {
       console.log('AI failed, using fallback:', aiErr.message)
       const fallback = fallbackTopics[subjectName] || ['Introduction', 'Core Concepts', 'Advanced Topics', 'Practice Problems', 'Revision']
@@ -137,9 +202,13 @@ const generateRoadmap = async (req, res) => {
   const { subjectName, examName, topics } = req.body
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+    // replace with:
+const model = genAI.getGenerativeModel({
+  model: 'gemini-2.5-flash',
+  generationConfig: { responseMimeType: 'application/json' }
+})
 
-    const prompt = `You are an expert educator. Create a week-by-week study roadmap for "${subjectName}" for "${examName}" exam.
+const prompt = `You are an expert educator. Create a week-by-week study roadmap for "${subjectName}" for "${examName}" exam.
 
 Topics available: ${topics.map(t => t.name).join(', ')}
 
@@ -153,8 +222,7 @@ Prioritize high weightage topics first. Group logically related topics together.
 
     const result = await model.generateContent(prompt)
     const text = result.response.text()
-    const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim()
-    const roadmap = JSON.parse(cleaned)
+const roadmap = safeJsonParse(text)
 
     res.json({ roadmap })
 
@@ -201,9 +269,13 @@ const generateFamousPYQ = async (req, res) => {
     return res.status(400).json({ error: 'Missing required fields' })
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+    // replace with:
+const model = genAI.getGenerativeModel({
+  model: 'gemini-2.5-flash',
+  generationConfig: { responseMimeType: 'application/json' }
+})
 
-    const prompt = `You are an expert educator for ${examName}. Generate 10 realistic previous year style MCQ questions for "${subjectName}" in ${examName}.
+const prompt = `You are an expert educator for ${examName}. Generate 10 realistic previous year style MCQ questions for "${subjectName}" in ${examName}.
 
 Return ONLY a valid JSON array like this:
 [
@@ -224,10 +296,8 @@ marks: 1 or 2
 Generate 10 questions spanning different topics. Return only the JSON array, nothing else.`
 
     const result = await model.generateContent(prompt)
-    const text = result.response.text()
-    const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim()
-    const questions = JSON.parse(cleaned)
-
+   const text = result.response.text()
+const questions = safeJsonParse(text)
     // Save to pyq_papers table
     const { data, error } = await supabase
       .from('pyq_papers')
@@ -258,7 +328,13 @@ const processUploadedPaper = async (req, res) => {
     return res.status(400).json({ error: 'Missing subjectId or image data' })
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+    // replace with:
+const model = genAI.getGenerativeModel({
+  model: 'gemini-2.5-flash',
+  generationConfig: { responseMimeType: 'application/json' }
+})
+
+// Send image to Gemini and extract + answer questions
 
     // Send image to Gemini and extract + answer questions
     const prompt = `You are an expert educator. Look at this question paper image carefully.
@@ -293,8 +369,7 @@ Extract every question you can see. Return only the JSON array, nothing else.`
     ])
 
     const text = result.response.text()
-    const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim()
-    const questions = JSON.parse(cleaned)
+const questions = safeJsonParse(text)
 
     // Save permanently to DB
     const { data, error } = await supabase
@@ -337,9 +412,13 @@ const generateSimilarPaper = async (req, res) => {
     if (!topics || topics.length === 0)
       return res.status(400).json({ error: 'No topics found for this subject' })
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+   // replace with:
+const model = genAI.getGenerativeModel({
+  model: 'gemini-2.5-flash',
+  generationConfig: { responseMimeType: 'application/json' }
+})
 
-    const topicList = topics.map(t => `${t.name} (${t.weightage} weightage)`).join('\n')
+const topicList = topics.map(t => `${t.name} (${t.weightage} weightage)`).join('\n')
 
     const prompt = `You are an expert university exam paper setter. Generate a realistic college exam question paper for "${subjectName}" based on the following syllabus topics.
 
@@ -380,8 +459,7 @@ Return only the JSON array, nothing else.`
 
     const result = await model.generateContent(prompt)
     const text = result.response.text()
-    const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim()
-    const questions = JSON.parse(cleaned)
+const questions = safeJsonParse(text)
 
     // Save to pyq_papers table
     const { data, error } = await supabase
